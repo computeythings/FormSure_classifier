@@ -1,0 +1,56 @@
+version: '3.8'
+
+services:
+  # Local development environment
+  classifier-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    ports:
+      - "8000:8000"
+    environment:
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+      - TABLE_PREFIX=${TABLE_PREFIX:-classifier}
+      - DEBUG_MODE=true
+      - LOCAL_MODE=true
+    volumes:
+      - .:/app
+      - ~/.aws:/root/.aws:ro
+    command: python server.py
+
+  # DynamoDB Local for testing
+  dynamodb-local:
+    image: amazon/dynamodb-local:latest
+    ports:
+      - "8001:8000"
+    command: ["-jar", "DynamoDBLocal.jar", "-sharedDb", "-inMemory"]
+
+  # LocalStack for AWS services simulation
+  localstack:
+    image: localstack/localstack:latest
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=s3,dynamodb,lambda,apigateway
+      - DEBUG=1
+      - DATA_DIR=/tmp/localstack/data
+      - LAMBDA_EXECUTOR=docker
+      - DOCKER_HOST=unix:///var/run/docker.sock
+    volumes:
+      - "/tmp/localstack:/tmp/localstack"
+      - "/var/run/docker.sock:/var/run/docker.sock"
+
+  # Testing service
+  test-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    depends_on:
+      - classifier-dev
+      - dynamodb-local
+    environment:
+      - API_ENDPOINT=http://classifier-dev:8000
+      - AWS_REGION=us-east-1
+    volumes:
+      - .:/app
+    command: python test_client.py http://classifier-dev:8000
